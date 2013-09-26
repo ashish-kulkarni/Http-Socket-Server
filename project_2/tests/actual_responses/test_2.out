@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK
+Date: Thu, 26 Sep 2013 15:37:03 PDT
+Server: CSUC HTTP
+Content-Type: text/html
+Content Length: 112
+<html>
+  <head>
+    <title>Sample</title>
+  </head>
+  <body>
+    <h1 id="go_team">Go Team</h1>
+  </body>
+</html>

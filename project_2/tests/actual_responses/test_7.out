@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK
+Date: Thu, 26 Sep 2013 15:37:06 PDT
+Server: CSUC HTTP
+Content-Type: text/html
+Content Length: 104
+<html>
+  <head>
+    <title>Nested Folders</title>
+  </head>
+  <body>
+    <h1>FUN!</h1>
+  </body>
+</html>
