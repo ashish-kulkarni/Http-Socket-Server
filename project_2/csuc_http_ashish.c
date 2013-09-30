@@ -69,7 +69,7 @@ int nextrequest(http_request_t *request)
 			token=strtok(extraheaders, ":");
 			if(strcmp(temp,token) == 0)
 			{
-				printf("Please include : to differentiate header names from header value\n");
+				printf("EXPECTED ':' \n");
 				i--;
 			}
 			else
@@ -177,28 +177,27 @@ int time_date(http_response_t *response)
 int type(char *token2,http_response_t *response)
 {
 	size_t len= strlen(token2);
-	char content[16] = "Content-Type: ";
-	strcpy(response->headers[1].field_name,content);
+	char content[16] = "Content-Type: ", ftype[12];
+	strcpy(response->headers[2].field_name,content);
 	if (len>=4 && strncmp(token2+len-5,".html",5) == 0)
 	{
 		char ftype[12]="text/html";
-		strcpy(response->headers[1].field_value,ftype);
 	}
 	else if(len >=4 && strncmp(token2+len-5,".jpeg",5) == 0)
 	{
 		char ftype[12]="image/jpeg";
-		strcpy(response->headers[1].field_value,ftype);
 	}
 	else if(len>=4 && strncmp(token2+len-4,".png",4) == 0)
 	{
-		char ftype[12]="image/png";
-		strcpy(response->headers[1].field_value,ftype);
+		char ftype[12]="image/png";	
 	}
 	else
 	{
 		char ftype[12]="Unknown";
-		strcpy(response->headers[1].field_value,ftype);
 	}
+	strcpy(response->headers[2].field_value,ftype);
+
+
 
 	return 0;
 }
@@ -210,18 +209,23 @@ int filecontent(char *path[])
 {
 
 	FILE *file; int c;
+	if(access(*path,F_OK)==0)
+	{
 	file = fopen(path[0], "r");
 	if (file)
 	{
 		while ((c = getc(file)) != EOF)
 			putchar(c);
-		fclose(file);
 	}
 	else
 	{
 		perror("Error");
-		fclose(file);
 	}
+	fclose(file);
+	}
+	else
+		perror("Unable to retrieve");
+
 
 	return 0;
 }
@@ -250,8 +254,8 @@ int filesize(char *path[],http_response_t *response, http_request_t *request)
 		size = st.st_size;
 		char siz[ENOUGH];
 		sprintf(siz,"%d", size); /*convert int to string*/
-		strcpy(response->headers[2].field_name,t);
-		strcpy(response->headers[2].field_value,siz);
+		strcpy(response->headers[3].field_name,t);
+		strcpy(response->headers[3].field_value,siz);
 	}
 	else
 		printf("Not Available\n");
@@ -260,25 +264,27 @@ int filesize(char *path[],http_response_t *response, http_request_t *request)
 
 int build_response(const http_request_t *request, http_response_t *response)
 {
-	
+	char tempname[] = "Server: ", tempvalue[]= "CSUC HTTP";
         response->status.code=HTTP_STATUS_LOOKUP[request->method].code;
 	response->status.reason=HTTP_STATUS_LOOKUP[request->method].reason;
 	strcpy(response->resource_path,request->uri);
 	response->major_version=request->major_version;
 	response->minor_version=request->minor_version;
 	response->header_count=request->header_count;
+	strcpy(response->headers[1].field_name, tempname);
+	strcpy(response->headers[1].field_value, tempvalue);
 	return 0;
 }
 
 
 int send_response(http_response_t *response,char *path[])
 {
+	int i =0;
 	printf("HTTP/%d.%d ",response->major_version,response->minor_version);
 	printf("%d %s\n",response->status.code,response->status.reason);
-	printf("Date: %s\n",response->headers[0].field_value);
-	printf("Server: CSUC HTTP\n");
-	printf("%s%s\n",response->headers[1].field_name,response->headers[1].field_value);
-	printf("%s%s\n",response->headers[2].field_name,response->headers[2].field_value);
+
+	for(i=0;i<=3;i++)
+	printf("%s%s\n",response->headers[i].field_name,response->headers[i].field_value);
 	filecontent(path);
 
 }
