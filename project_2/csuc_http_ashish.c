@@ -245,20 +245,27 @@ int passarray(char *token2,char* path,http_response_t *response,http_request_t *
 /*Getting File Size*/
 int filesize(char *path[],http_response_t *response, http_request_t *request)
 {
+	char t[18] = "Content Length: ";
+	strcpy(response->headers[3].field_name,t);
+	char siz[ENOUGH];
+
+
 	if(access(*path,F_OK)==0)
 	{
 		int size;
 		struct stat st;
-		char t[18] = "Content Length: ";
-		stat(path[0], &st);
-		size = st.st_size;
-		char siz[ENOUGH];
+	        stat(path[0], &st);
+		size = st.st_size;	
 		sprintf(siz,"%d", size); /*convert int to string*/
-		strcpy(response->headers[3].field_name,t);
-		strcpy(response->headers[3].field_value,siz);
+                strcpy(response->headers[3].field_value,siz);
+
 	}
 	else
-		printf("Not Available\n");
+	{
+		char siz[] = "0";
+                strcpy(response->headers[3].field_value,siz);
+	}
+
 }
 
 
