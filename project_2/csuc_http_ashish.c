@@ -7,7 +7,7 @@
 #include<unistd.h>
 #include<sys/stat.h>
 #include"csuc_http.h"
-#define ENOUGH ((CHAR_BIT * sizeof(int) - 1) / 3 + 2)
+/*#define ENOUGH ((CHAR_BIT * sizeof(int) - 1) / 3 + 2)*/
 
 
 char **head_name[62][100];
@@ -247,7 +247,7 @@ int filesize(char *path[],http_response_t *response, http_request_t *request)
 {
 	char t[18] = "Content Length: ";
 	strcpy(response->headers[3].field_name,t);
-	char siz[ENOUGH];
+	/*char siz[ENOUGH];*/
 
 
 	if(access(*path,F_OK)==0)
@@ -256,8 +256,9 @@ int filesize(char *path[],http_response_t *response, http_request_t *request)
 		struct stat st;
 	        stat(path[0], &st);
 		size = st.st_size;	
-		sprintf(siz,"%d", size); /*convert int to string*/
-                strcpy(response->headers[3].field_value,siz);
+		sprintf(response->headers[3].field_value,"%d", size);
+		/*convert int to string
+                strcpy(response->headers[3].field_value,siz);*/
 
 	}
 	else
