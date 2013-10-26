@@ -169,24 +169,16 @@ int parse_string(char *loc,http_request_t *request,http_response_t *response,int
 	httpversion = malloc(sizeof(char)*SMALL);
 	uri =malloc(sizeof(char)*SMALL);
 	sscanf(loc,"%s %s %s",method,request->uri,httpversion);
-	lstat(response->resource_path,&st);
-//	if(S_ISDIR(st.st_mode))
-//		strcat(request->uri,"index.html");
 	if(strstr(request->uri,".")== NULL)
 		strcat(request->uri,"index.html");
         if(strstr(request->uri,"?")!=NULL)
 	{
-//		strcpy(uri,request->uri);
-//		memset(request->uri,0,sizeof(request->uri));
 		strtok(request->uri,"?");
 	}
 	else if(strstr(request->uri,"#")!=NULL)
 	{
-	//	strcpy(uri,request->uri);
-	//	memset(request->uri,0,sizeof(request->uri));
 		strtok(request->uri,"#");
 	}
-	printf("uri is %s\n",request->uri);
 
 	strtok(httpversion,"/");
 	token =strtok(NULL,".");
@@ -336,7 +328,6 @@ int send_response(http_response_t *response,char *path[], int newfd)
 {
 	FILE *newfp, *file;
 	newfp = fdopen(newfd, "w");
-	//	newfp = fopen("tempo.txt","w+");
 	if(newfp== NULL)
 		perror("creating file");
 	int i =0;
