@@ -72,6 +72,7 @@ int main(int argc, char *argv[])
 							parse_string(sendbuff,request,response,newfd);
 							reset_response(response);
 							close(newfd);
+							sleep(1);
 							free(request);
 							free(response);
 							return 0;
@@ -94,7 +95,6 @@ int main(int argc, char *argv[])
 					fclose(fp);	
 				}
 				//   close(newfd);
-				sleep(1);
 
 			}
 
