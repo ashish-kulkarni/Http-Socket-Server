@@ -1,5 +1,5 @@
 #include "http_header.h"
-
+char root_directory[PATH_MAX] = ".";
 
 
 int main(int argc, char *argv[])
@@ -31,6 +31,7 @@ int main(int argc, char *argv[])
 				break;
 			case 'd':
 				count.dir_string = strdup(optarg);
+				strcpy(root_directory,optarg);
 				directory_validation(response);
 				count.dir++;
 				break;
@@ -59,7 +60,7 @@ int main(int argc, char *argv[])
 
 int port_validation(int portno)
 {
-	if(portno > 0 && portno <65535)
+	if(portno > 1024 && portno <65535)
 		return 0;
 	else
 	{
@@ -103,7 +104,10 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 	sockaddr.sin_port = htons(portno);
 	sockaddr.sin_addr.s_addr = INADDR_ANY;
 	if(bind(sockfd, ( struct sockaddr*) &sockaddr,sizeof(sockaddr)) == -1)
+	{
 		perror("bind");
+		return 0;
+	}
 
 	if(listen(sockfd,50) == -1)
 		perror("listen");
@@ -159,7 +163,6 @@ int process_fork(http_request_t *request,http_response_t *response,int sockfd)
 					parse_string(sendbuff,request,response,newfd);
 					reset_response(response);
 					close(newfd);
-					sleep(1);
 					return 0;
 				}
 
@@ -228,16 +231,16 @@ int process_serial(http_request_t *request,http_response_t *response,int sockfd)
 int main_thread(int sockfd)
 {
 	int *ptr_str;
-	pthread_t thread1;
+	pthread_t thread1,thread2;
 
 
 	while(1)
 	{
-	        ptr_str = malloc(sizeof(int));
+		ptr_str = malloc(sizeof(int));
 
 		*ptr_str=accept(sockfd,(struct sockaddr *) NULL,NULL);
-//		if (*ptr_str == 0)
-  //                   *ptr_str=accept(sockfd,(struct sockaddr *) NULL,NULL);
+		//		if (*ptr_str == 0)
+		//                   *ptr_str=accept(sockfd,(struct sockaddr *) NULL,NULL);
 
 
 		if (*ptr_str == -1)
@@ -249,7 +252,11 @@ int main_thread(int sockfd)
 		{	
 			pthread_create(&thread1,NULL,process_thread,ptr_str);
 			pthread_join(thread1,NULL);
+			pthread_create(&thread2,NULL,process_thread,ptr_str);
+			pthread_join(thread2,NULL);
+
 			pthread_detach(thread1);
+			pthread_detach(thread2);
 		}
 
 	}
@@ -280,10 +287,7 @@ void *process_thread(void *ptr_str)
 		parse_string(sendbuff,request,response,newfd);
 
 		reset_response(response);
-		//close(newfd);
-		//				pthread_detach(pthread_self());
-	////////	pthread_exit(pthread_self);
-	
+
 	}
 	else
 	{
@@ -306,7 +310,7 @@ int nextrequest(http_request_t *request, FILE *fp )
 		fgets(extraheaders,BUFFER_SIZE,fp);
 		if(extraheaders[0] == '\n')
 		{
-			break;
+			return 0;
 		}
 		else
 		{
@@ -358,43 +362,37 @@ int parse_string(char *loc,http_request_t *request,http_response_t *response,int
 int checkget(char *method,http_request_t *request,http_response_t *response,int newfd)
 { 
 	char *temp = "GET";
-	char path[MID_SIZE];
-	memset(path,0, sizeof(path));
-	strcpy(path,response->resource_path);
-	strcat(path,request->uri);
+	strcat(response->resource_path,request->uri);
 
 	if(strcmp(method,temp)==0)
 	{
-		if(access(path,F_OK)==0)	
+		if(access(response->resource_path,F_OK)==0)	
 			request->method=HTTP_STATUS_OK;
 
 		else
 		{
 			request->method=HTTP_STATUS_NOT_FOUND;
-			if(fopen("404.html","r"))
-				return 0;
-			else if(fopen("400.html","r"))
-				return 0;
-			else (fopen("errors.html","r"));
 		}
 
 	}
 	else
 		request->method=HTTP_STATUS_NOT_IMPLEMENTED;
 
-	passarray(path,response,request,newfd);
+	passarray(response,request,newfd);
 	return 0;
 }
 
 
+
+
 /* Buffer Function to arrange function parameters*/
-int passarray(char* path,http_response_t *response,http_request_t *request,int newfd)
+int passarray(http_response_t *response,http_request_t *request,int newfd)
 {
 	time_date(response);
 	filetype(request,response);
-	filesize(&path,response,request);
+	filesize(response);
 	build_response(request, response);
-	send_response(response,&path,newfd);
+	send_response(request,response,newfd);
 	return 0;
 }
 
@@ -499,123 +497,220 @@ int filetype(http_request_t *request,http_response_t *response)
 	}
 	else
 	{
-		strcpy(response->headers[2].field_value,pch);
+		strcpy(response->headers[2].field_value,"text/plain");
 	}
 	return 0;
 }
 
 
 /*Getting File Size*/
-int filesize(char *path[],http_response_t *response, http_request_t *request)
+int filesize(http_response_t *response)
 {
 	char t[18] = "Content Length: ";
 	strcpy(response->headers[3].field_name,t);
 
 
-	if(access(*path,F_OK)==0)
+	if(access(response->resource_path,F_OK)==0)
 	{
 		int size;
 		struct stat st;
-		stat(path[0], &st);
+		stat(response->resource_path, &st);
 		size = st.st_size;	
 		sprintf(response->headers[3].field_value,"%d", size);
 	}
 	else
 	{
-		char siz[] = "0";
-		strcpy(response->headers[3].field_value,siz);
-	}
-
-}
-
-
-int build_response(const http_request_t *request, http_response_t *response)
-{
-	char tempname[] = "Server: ", tempvalue[]= "CSUC HTTP";
-	response->status.code=HTTP_STATUS_LOOKUP[request->method].code;
-	response->status.reason=HTTP_STATUS_LOOKUP[request->method].reason;
-	response->major_version=request->major_version;
-	response->minor_version=request->minor_version;
-	response->header_count=request->header_count;
-	strcpy(response->headers[1].field_name, tempname);
-	strcpy(response->headers[1].field_value, tempvalue);
-	return 0;
-}
-
-
-int send_response(http_response_t *response,char *path[], int newfd)
-{
-	FILE *newfp, *file;
-	if (newfd == 0)
-		perror("newfd is 0");
-	newfp = fdopen(dup(newfd), "w");
-	//newfp = fopen("log.txt", "a+");
-	if(newfp== NULL)
-	{		
-		perror("creating file");
-		exit(EXIT_SUCCESS);
-	}
-	int i =0;
-	fprintf(newfp,"HTTP/%d.%d %d %s\r\n",response->major_version,response->minor_version,response->status.code,response->status.reason);
-
-
-	for(i=0;i<=3;i++)
-	{
-		fprintf(newfp,"%s%s\r\n",response->headers[i].field_name,response->headers[i].field_value);
-	}
-	fprintf(newfp,"\n");
-
-	filecontent(path,newfp);
-	fclose(newfp);
-	return 0;
-}
-
-
-/* Getting file's contents */
-
-int filecontent(char *path[], FILE *newfp)
-{
-
-	FILE *file; int fd;
-	int f_size;
-	char *buf = malloc(sizeof(char) * MAX_FILE_SIZE);
-	memset(buf,0, sizeof(buf));
-	if(access(*path,F_OK)==0)
-	{
-		file = fopen(path[0], "r");
-		if (file)
+		if(strstr(response->resource_path,"favicon.ico")==NULL)
+			handle_errors(response);
+		else
 		{
-			while((f_size= fread(buf,1,sizeof(buf),file)) > 0)
-				fwrite(buf,1,f_size,newfp);
+			char siz[] = "0";
+			strcpy(response->headers[3].field_value,siz);
 
-			close(fd);	
+		}
+
+	}
+}
+
+
+	int handle_errors(http_response_t *response)
+	{
+		int size;
+		struct stat st;
+		FILE *fp;
+
+		memset(response->resource_path,0, sizeof(response->resource_path));
+		strcpy(response->resource_path, root_directory);	
+		strcat(response->resource_path,"/404.html");
+		if(fp=fopen(response->resource_path,"r"))
+		{
+			if(fp)
+			{
+				stat(response->resource_path, &st);
+				size = st.st_size;	
+				sprintf(response->headers[3].field_value,"%d", size);
+
+
+			}
+
+			fclose(fp);	
+		}
+		else 
+		{
+			memset(response->resource_path,0, sizeof(response->resource_path));
+			strcpy(response->resource_path, root_directory);	
+			strcat(response->resource_path,"/400.html");
+			if(fp=fopen(response->resource_path,"r"))
+			{
+				if(fp)
+				{
+					stat(response->resource_path, &st);
+					size = st.st_size;	
+					sprintf(response->headers[3].field_value,"%d", size);
+
+				}
+
+				fclose(fp);	
+			}
+			else
+			{
+				memset(response->resource_path,0, sizeof(response->resource_path));
+				strcpy(response->resource_path, "errors");	
+				strcat(response->resource_path,"/errors.html");
+				fp = fopen (response->resource_path,"r");
+				{
+					if(fp)
+					{
+						stat(response->resource_path, &st);
+						size = st.st_size;	
+						sprintf(response->headers[3].field_value,"%d", size);
+						fclose(fp);
+					}
+					else
+					{
+						perror("Error handling");
+
+					}
+				}
+			}		
+		}
+		return 0;
+
+
+	}
+
+
+
+
+
+
+
+
+
+	int build_response(const http_request_t *request, http_response_t *response)
+	{
+		char tempname[] = "Server: ", tempvalue[]= "CSUC HTTP";
+		response->status.code=HTTP_STATUS_LOOKUP[request->method].code;
+		response->status.reason=HTTP_STATUS_LOOKUP[request->method].reason;
+		response->major_version=request->major_version;
+		response->minor_version=request->minor_version;
+		response->header_count=request->header_count;
+		strcpy(response->headers[1].field_name, tempname);
+		strcpy(response->headers[1].field_value, tempvalue);
+		return 0;
+	}
+
+
+	int send_response(http_request_t *request,http_response_t *response, int newfd)
+	{
+		FILE *newfp, *file;
+		if (newfd == 0)
+			perror("newfd is 0");
+		newfp = fdopen(dup(newfd), "w");
+		//newfp = fopen("log.txt", "a+");
+		if(newfp== NULL)
+		{		
+			perror("creating file");
+			exit(EXIT_SUCCESS);
+		}
+		int i =0;
+
+		if(response->status.code == 404 && (strstr(response->resource_path,"favicon.ico")==NULL))
+		{
+			request->method=HTTP_STATUS_OK;
+			response->status.code=HTTP_STATUS_LOOKUP[request->method].code;
+			response->status.reason=HTTP_STATUS_LOOKUP[request->method].reason;
+			strcpy(response->headers[2].field_value,"text/html");
+			filesize(response);
+
+		}
+		fprintf(newfp,"HTTP/%d.%d %d %s\r\n",response->major_version,response->minor_version,response->status.code,response->status.reason);
+
+
+
+		for(i=0;i<=3;i++)
+		{
+			fprintf(newfp,"%s%s\r\n",response->headers[i].field_name,response->headers[i].field_value);
+		}
+		fprintf(newfp,"\n");
+
+		filecontent(newfp,response,newfd);
+		fclose(newfp);
+		return 0;
+	}
+
+
+	/* Getting file's contents */
+
+	int filecontent(FILE *newfp,http_response_t *response,int newfd)
+	{
+
+		FILE *file; int fd;
+		int f_size;
+		char *buf = malloc(sizeof(char) * MAX_FILE_SIZE);
+		memset(buf,0, sizeof(buf));
+		if(access(response->resource_path,F_OK)==0)
+		{
+			file = fopen(response->resource_path, "r");
+			if (file)
+			{
+				while((f_size= fread(buf,1,sizeof(buf),file)) > 0)
+					fwrite(buf,1,f_size,newfp);
+
+				close(fd);	
+			}
+			else
+			{
+				perror("Printing");
+			}
+			fclose(file);
 		}
 		else
 		{
-			perror("Printing");
+			perror("favicon.ico");
 		}
-		fclose(file);
+		free(buf);
+
+		return 0;
 	}
-	else
-		perror("favicon.ico");
-	free(buf);
 
-	return 0;
-}
+	/* Resetting the Headers*/
 
-/* Resetting the Headers*/
-
-int reset_response(http_response_t *response)
-{
-	int heads, header_count =3;
-	for(heads=0;heads<response->header_count;heads++)
+	int reset_response(http_response_t *response)
 	{
-		strcpy(response->headers[heads].field_name,"");
-		strcpy(response->headers[heads].field_value,"");
+		int heads, header_count =3;
+		for(heads=0;heads<response->header_count;heads++)
+		{
+			strcpy(response->headers[heads].field_name,"");
+			strcpy(response->headers[heads].field_value,"");
+		}
+		response->header_count = 0;
+		count.forkcount = 0;
+		count.threadcount = 0;
+		count.totalcount = 0;
+		memset(response->resource_path,0, sizeof(response->resource_path));
+		if(count.dir == 1)
+			strcpy(response->resource_path,count.dir_string);
+
+		return 0;
 	}
-	response->header_count = 0;
-	count.forkcount = 0;
-	count.threadcount = 0;
-	count.totalcount = 0;
-	return 0;
-}

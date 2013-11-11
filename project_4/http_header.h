@@ -42,13 +42,13 @@ void *process_thread(void *ptr_str);
 int nextrequest(http_request_t *request, FILE *fp);
 int parse_string(char *loc,http_request_t *request,http_response_t *response,int newfd);
 int checkget(char *method,http_request_t *request,http_response_t *response,int newfd);
-int passarray(char* path,http_response_t *response,http_request_t *request,int newfd);
+int passarray(http_response_t *response,http_request_t *request,int newfd);
 int time_date(http_response_t *response);
 int filetype(http_request_t *request,http_response_t *response);
-int filesize(char *path[],http_response_t *response, http_request_t *request);
+int filesize(http_response_t *response);
 int build_response(const http_request_t *request, http_response_t *response);
-int send_response(http_response_t *response,char *path[], int newfd);
-int filecontent(char *path[], FILE *newfp);
+int send_response(http_request_t *request,http_response_t *response,int newfd);
+int filecontent(FILE *newfp,http_response_t *response,int newfd);
 int reset_response(http_response_t *response);
 
 #endif //HTTP_HEADER
