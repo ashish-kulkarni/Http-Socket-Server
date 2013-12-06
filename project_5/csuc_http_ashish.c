@@ -1,5 +1,8 @@
 #include "http_header.h"
-char root_directory[PATH_MAX] = ".";
+
+
+CircularBuffer cb;
+ElemType elem ={0};
 
 
 int main(int argc, char *argv[])
@@ -8,11 +11,14 @@ int main(int argc, char *argv[])
 	/*constructing structure objects*/
 	http_response_t *response=(http_response_t *)malloc(sizeof(http_response_t) );
 	http_request_t *request=(http_request_t *)malloc(sizeof(http_request_t) );
-	int c,index,portno = 9000;char *port_string = NULL; count.dir_string = NULL;
+	int c,index;char *port_string = NULL; count.dir_string = NULL;
 	count.forkcount = 0;count.threadcount = 0;count.totalcount = 0;count.dir = 0;
-	char default_dir[5] = ".";
+	count.workercount =0; count.queuecount =0;
+	char *worker_string;char* queue_string;char default_dir[ULTRA_SMALL] = ".";
+	char *error_string;
 	strcpy(response->resource_path,default_dir);
-	while ((c = getopt (argc, argv, "ftp:d:")) != -1) //iterate till all arguments are covered
+	strcpy(log_level,"WARNING");
+	while ((c = getopt (argc, argv, "ftp:d:w:q:v:")) != -1) //iterate till all arguments are covered
 		switch (c) 
 		{   
 			case 'f':
@@ -35,18 +41,26 @@ int main(int argc, char *argv[])
 				directory_validation(response);
 				count.dir++;
 				break;
-			case '?':
-				if (optopt == 'd')
-					fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-				else if (isprint (optopt))
-					fprintf (stderr, "Unknown option `-%c'.\n", optopt);
-				else
-					fprintf (stderr,
-							"Unknown option character `\\x%x'.\n",
-							optopt);
-				return 1;
+			case 'w':
+				count.workercount++; //worker flag set
+				worker_string=strdup(optarg);
+				no_of_workers = atoi(worker_string);
+				free(worker_string);
+				break;
+			case 'q':
+				count.queuecount++;	//queuesize flag set
+				queue_string=strdup(optarg);
+				job_size = atoi(queue_string);
+				free(queue_string);
+				break;
+			case 'v':
+				error_string=strdup(optarg);
+				error_level(error_string);
+				free(error_string);
+				break;
+
 			default:
-				abort (); 
+				exit(EXIT_FAILURE); 
 		}
 	//Handling Invalid Arguments
 	for (index = optind; index < argc; index++)
@@ -55,6 +69,25 @@ int main(int argc, char *argv[])
 	socket_generator(request,response,portno);
 	free(request);
 	free(response); 
+	return 0;
+}
+
+int error_level(char *error_string)
+{
+
+	if((strcmp(error_string,"0")==0) || (strcmp(error_string,"ERROR")==0))
+		strcpy(log_level,"ERROR");
+	else if((strcmp(error_string,"1")==0) || (strcmp(error_string,"INFO")==0))
+		strcpy(log_level,"WARNING");
+	else if((strcmp(error_string,"2")==0) || (strcmp(error_string,"INFO")==0))
+		strcpy(log_level,"INFO");
+	else if((strcmp(error_string,"3")==0) || (strcmp(error_string,"DEBUG")==0))
+		strcpy(log_level,"DEBUG");
+	else
+	{
+		perror("Error_level : Invalid option");
+		exit(EXIT_FAILURE);
+	}
 	return 0;
 }
 
@@ -103,6 +136,26 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 	sockaddr.sin_family = AF_INET;
 	sockaddr.sin_port = htons(portno);
 	sockaddr.sin_addr.s_addr = INADDR_ANY;
+
+	// signal handling
+	struct sigaction sa;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags   = 0;
+	sa.sa_handler = graceful_shutdown;
+	if (sigaction(SIGINT, &sa, NULL) == -1) {
+		exit(EXIT_FAILURE);
+	}
+	if (sigaction(SIGTERM, &sa, NULL) == -1) {
+		exit(EXIT_FAILURE);
+	}
+	if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+		exit(EXIT_FAILURE);
+	}
+	if (sigaction(SIGUSR2, &sa, NULL) == -1) {
+		exit(EXIT_FAILURE);
+	}
+
+	// end_signal_handling
 	if(bind(sockfd, ( struct sockaddr*) &sockaddr,sizeof(sockaddr)) == -1)
 	{
 		perror("bind");
@@ -114,9 +167,30 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 	switch(count.totalcount)
 	{
 		case 0:
-			process_serial(request,response,sockfd);
+			if(count.queuecount == 1)
+			{
+				if(count.workercount ==1)
+					thread_pool(sockfd);
+				else
+				{
+					perror("No worker specified");
+					exit(EXIT_FAILURE);
+				}
+			}
+			else
+			{
+				if(count.workercount ==1)
+					thread_pool(sockfd);
+				else
+					process_serial(request,response,sockfd);
+			}
 			break;
 		case 1:
+			if(count.workercount == 1 || count.queuecount ==1)
+			{
+				perror("not allowed :: -w -f / -w -t / -q -f / -q -t ");
+				exit(EXIT_FAILURE);
+			}
 			if(count.forkcount == 1)
 				process_fork(request,response,sockfd);
 			else if(count.threadcount ==1)
@@ -129,26 +203,159 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 			perror("Not allowed Fork + Thread");
 			exit(EXIT_FAILURE);
 		default:
-			abort();
+			exit(EXIT_FAILURE);
 	}
 	return 0;
 }
 
+int thread_pool(int sockfd)
+{
+	strcpy(response_strategy,"Thread Pool");
+	int newsockfd,load,s;
+	pthread_t tidgroup[no_of_workers];
+	cbInit(&cb,job_size);
+	for(load=0;load<no_of_workers;load++)
+	{
+		s=pthread_create(&tidgroup[load],0,thread_consumer,NULL);
+	}
+	while(status == RUNNING)
+	{
+		newsockfd=accept(sockfd,(struct sockaddr *)NULL,NULL);
+		clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+		printf("newsockfd = %d\n",newsockfd);
+		if(newsockfd != -1)
+			thread_producer(&newsockfd);
+	}
+	for(load=0;load<no_of_workers;load++)
+		pthread_detach(tidgroup[load]);
+	close(sockfd);
+	exit(EXIT_FAILURE);
+}
+
+void *thread_consumer()
+{
+	while(status == RUNNING)
+	{
+		pthread_mutex_lock(&the_mutex);
+		while(cbIsEmpty(&cb))
+		{
+			pthread_cond_wait(&condc, &the_mutex);
+		}
+		//	pthread_mutex_lock(&the_mutex);
+		//NEXT JOB FROM BUFFER
+		cbRead(&cb, &elem);
+		int newfd = elem.value; 
+
+		//DECREMENT THE SIZE
+		pthread_cond_broadcast(&condp);
+		pthread_mutex_unlock(&the_mutex);
+
+		//DO THe job
+		char sendbuff[PATH_MAX];FILE * fp=NULL;
+		memset(&sendbuff,0,sizeof(sendbuff));
+		http_response_t *response=(http_response_t *)malloc(sizeof(http_response_t) );
+		http_request_t *request=(http_request_t *)malloc(sizeof(http_request_t) );
+		char default_dir[5] = ".";
+		strcpy(response->resource_path,default_dir);
+		if(count.dir == 1)
+			strcpy(response->resource_path,count.dir_string);
+
+		if(newfd != -1)
+		{
+			fp = fdopen(dup(newfd),"r");
+			if(fp)
+			{
+				fgets(sendbuff,PATH_MAX,fp);
+				nextrequest(request,fp);
+				parse_string(sendbuff,request,response,newfd);
+				reset_response(response);
+
+			}
+			else
+			{
+				perror("fp -threads");
+			}
+			fclose(fp);
+
+		}close(newfd);
+	}
+	exit(EXIT_FAILURE);
+}
+void thread_producer(int *newfdptr)
+{
+	pthread_mutex_lock(&the_mutex);
+	while(cbIsFull(&cb))
+	{
+		pthread_cond_wait(&condp,&the_mutex);
+	}
+	//pthread_mutex_lock(&the_mutex);
+	//add to buffer
+	elem.value = *newfdptr;
+	cbWrite(&cb,&elem);
+	//increament buffer size
+	pthread_cond_broadcast(&condc);
+	pthread_mutex_unlock(&the_mutex);
+
+}
+
+
+void cbInit(CircularBuffer *cb, int size)
+{
+	cb->size  = size + 1; /* include empty elem */
+	cb->start = 0;
+	cb->end   = 0;
+	cb->elems = (ElemType *)calloc(cb->size, sizeof(ElemType));
+}
+
+void cbFree(CircularBuffer *cb)
+{
+	free(cb->elems); /* OK if null */
+}
+
+int cbIsFull(CircularBuffer *cb)
+{
+	return (cb->end + 1) % cb->size == cb->start;
+}
+
+int cbIsEmpty(CircularBuffer *cb)
+{
+	return cb->end == cb->start;
+}
+
+/* Write an element, overwriting oldest element if buffer is full. App can
+   choose to avoid the overwrite by checking cbIsFull(). */
+void cbWrite(CircularBuffer *cb, ElemType *elem)
+{
+	cb->elems[cb->end] = *elem;
+	cb->end = (cb->end + 1) % cb->size;
+	if (cb->end == cb->start)
+		cb->start = (cb->start + 1) % cb->size; /* full, overwrite */
+}
+
+/* Read oldest element. App must ensure !cbIsEmpty() first. */
+void cbRead(CircularBuffer *cb, ElemType *elem)
+{
+	*elem = cb->elems[cb->start];
+	cb->start = (cb->start + 1) % cb->size;
+}
+
+
+
 int process_fork(http_request_t *request,http_response_t *response,int sockfd)
 {
+	strcpy(response_strategy," Process Fork");
 	int newfd,pid;char sendbuff[PATH_MAX];FILE * fp;
 	memset(&sendbuff,0,sizeof(sendbuff));
 
 
 
-	while(1)
+	while(status == RUNNING)
 	{
 		newfd=accept(sockfd,(struct sockaddr *) NULL,NULL);
-		if (newfd == -1)
-		{
-			perror("Accept error:");
-		}
-		else
+		clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+		if (newfd != -1)
 		{	
 
 			fp = fdopen(dup(newfd),"r");
@@ -192,17 +399,15 @@ int process_fork(http_request_t *request,http_response_t *response,int sockfd)
 
 int process_serial(http_request_t *request,http_response_t *response,int sockfd)
 {
+	strcpy(response_strategy,"Serial Process");
 	int newfd=0;char sendbuff[PATH_MAX];FILE * fp;
 	memset(&sendbuff,0,sizeof(sendbuff));
 
-	while(1)
+	while(status == RUNNING)
 	{
 		newfd=accept(sockfd,(struct sockaddr *) NULL,NULL);
-		if (newfd == -1)
-		{
-			perror("Accept error:");
-		}
-		else
+		clock_gettime(CLOCK_MONOTONIC, &tstart);
+		if (newfd != -1)
 		{
 			fp = fdopen(dup(newfd),"r");
 			if(fp)
@@ -230,40 +435,34 @@ int process_serial(http_request_t *request,http_response_t *response,int sockfd)
 
 int main_thread(int sockfd)
 {
+	strcpy(response_strategy,"Process Thread");
 	int *ptr_str;
-	int fd;
-	pthread_t thread1;
+	pthread_t thread1,thread2;
 
 
-	while(1)
+	while(status == RUNNING)
 	{
 		ptr_str = malloc(sizeof(int));
+		int fd;
 
-		fd =accept(sockfd,(struct sockaddr *) NULL,NULL);
-		printf("newfd just after accept  = %d\n",fd);
+		fd=accept(sockfd,(struct sockaddr *) NULL,NULL);
+		clock_gettime(CLOCK_MONOTONIC, &tstart);
+
 		*ptr_str =fd;
 		//		if (*ptr_str == 0)
 		//                   *ptr_str=accept(sockfd,(struct sockaddr *) NULL,NULL);
 
 
-		if (fd == -1)
-		{
-			perror("Accept error:");
-			return -1;
-		}
-		else
+		if (fd != -1)
 		{	
 			pthread_create(&thread1,0,process_thread,ptr_str);
-			//pthread_join(thread1,NULL);
-			//pthread_create(&thread2,NULL,process_thread,ptr_str);
-			//pthread_join(thread2,NULL);
+			pthread_join(thread1,NULL);
 
 			pthread_detach(thread1);
-			//pthread_detach(thread2);
 		}
 
 	}
-
+	close(sockfd);
 
 }
 
@@ -279,27 +478,28 @@ void *process_thread(void *ptr_str)
 		strcpy(response->resource_path,count.dir_string);
 
 	int newfd = *((int*)ptr_str);
-	printf("newfd in process thread = %d\n",newfd);
 
-	fp = fdopen(dup(newfd),"rw");
-	if(fp)
+	if(newfd != -1)
 	{
-		fgets(sendbuff,PATH_MAX,fp);
-		nextrequest(request,fp);
+		fp = fdopen(dup(newfd),"r");
+		if(fp)
+		{
+			fgets(sendbuff,PATH_MAX,fp);
+			nextrequest(request,fp);
+			//fclose(fp);
+			parse_string(sendbuff,request,response,newfd);
+			reset_response(response);
+			//	close(newfd);
+
+		}
+		else
+		{
+			perror("fp -threads");
+		}
 		fclose(fp);
 
-		parse_string(sendbuff,request,response,newfd);
+	}close(newfd);
 
-		reset_response(response);
-//		close(newfd);
-
-	}
-	else
-	{
-		perror("fp -threads");
-	}	
-
-	close(newfd);
 }
 
 
@@ -522,6 +722,7 @@ int filesize(http_response_t *response)
 		stat(response->resource_path, &st);
 		size = st.st_size;	
 		sprintf(response->headers[3].field_value,"%d", size);
+		total_buffer_size=total_buffer_size+size;
 	}
 	else
 	{
@@ -538,15 +739,33 @@ int filesize(http_response_t *response)
 }
 
 
-	int handle_errors(http_response_t *response)
-	{
-		int size;
-		struct stat st;
-		FILE *fp;
+int handle_errors(http_response_t *response)
+{
+	int size;
+	struct stat st;
+	FILE *fp;
 
+	memset(response->resource_path,0, sizeof(response->resource_path));
+	strcpy(response->resource_path, root_directory);	
+	strcat(response->resource_path,"/404.html");
+	if(fp=fopen(response->resource_path,"r"))
+	{
+		if(fp)
+		{
+			stat(response->resource_path, &st);
+			size = st.st_size;	
+			sprintf(response->headers[3].field_value,"%d", size);
+
+
+		}
+
+		fclose(fp);	
+	}
+	else 
+	{
 		memset(response->resource_path,0, sizeof(response->resource_path));
 		strcpy(response->resource_path, root_directory);	
-		strcat(response->resource_path,"/404.html");
+		strcat(response->resource_path,"/400.html");
 		if(fp=fopen(response->resource_path,"r"))
 		{
 			if(fp)
@@ -555,54 +774,36 @@ int filesize(http_response_t *response)
 				size = st.st_size;	
 				sprintf(response->headers[3].field_value,"%d", size);
 
-
 			}
 
 			fclose(fp);	
 		}
-		else 
+		else
 		{
 			memset(response->resource_path,0, sizeof(response->resource_path));
-			strcpy(response->resource_path, root_directory);	
-			strcat(response->resource_path,"/400.html");
-			if(fp=fopen(response->resource_path,"r"))
+			strcpy(response->resource_path, "errors");	
+			strcat(response->resource_path,"/errors.html");
+			fp = fopen (response->resource_path,"r");
 			{
 				if(fp)
 				{
 					stat(response->resource_path, &st);
 					size = st.st_size;	
 					sprintf(response->headers[3].field_value,"%d", size);
-
+					fclose(fp);
 				}
-
-				fclose(fp);	
-			}
-			else
-			{
-				memset(response->resource_path,0, sizeof(response->resource_path));
-				strcpy(response->resource_path, "errors");	
-				strcat(response->resource_path,"/errors.html");
-				fp = fopen (response->resource_path,"r");
+				else
 				{
-					if(fp)
-					{
-						stat(response->resource_path, &st);
-						size = st.st_size;	
-						sprintf(response->headers[3].field_value,"%d", size);
-						fclose(fp);
-					}
-					else
-					{
-						perror("Error handling");
+					perror("Error handling");
 
-					}
 				}
-			}		
-		}
-		return 0;
-
-
+			}
+		}		
 	}
+	return 0;
+
+
+}
 
 
 
@@ -612,113 +813,117 @@ int filesize(http_response_t *response)
 
 
 
-	int build_response(const http_request_t *request, http_response_t *response)
+int build_response(const http_request_t *request, http_response_t *response)
+{
+	total_request++;
+	char tempname[] = "Server: ", tempvalue[]= "CSUC HTTP";
+	response->status.code=HTTP_STATUS_LOOKUP[request->method].code;
+	response->status.reason=HTTP_STATUS_LOOKUP[request->method].reason;
+	response->major_version=request->major_version;
+	response->minor_version=request->minor_version;
+	response->header_count=request->header_count;
+	strcpy(response->headers[1].field_name, tempname);
+	strcpy(response->headers[1].field_value, tempvalue);
+	return 0;
+}
+
+
+int send_response(http_request_t *request,http_response_t *response, int newfd)
+{
+	FILE *newfp, *file;
+	//		if (newfd == 0)
+	//			perror("newfd is 0");
+	newfp = fdopen(dup(newfd), "w");
+	//newfp = fopen("log.txt", "a+");
+	if(newfp== NULL)
+	{		
+		perror("creating file");
+		exit(EXIT_SUCCESS);
+	}
+	int i =0;
+
+	if(response->status.code == 404 && (strstr(response->resource_path,"favicon.ico")==NULL))
 	{
-		char tempname[] = "Server: ", tempvalue[]= "CSUC HTTP";
+		request->method=HTTP_STATUS_OK;
 		response->status.code=HTTP_STATUS_LOOKUP[request->method].code;
 		response->status.reason=HTTP_STATUS_LOOKUP[request->method].reason;
-		response->major_version=request->major_version;
-		response->minor_version=request->minor_version;
-		response->header_count=request->header_count;
-		strcpy(response->headers[1].field_name, tempname);
-		strcpy(response->headers[1].field_value, tempvalue);
-		return 0;
+		strcpy(response->headers[2].field_value,"text/html");
+		filesize(response);
+
 	}
+	fprintf(newfp,"HTTP/%d.%d %d %s\r\n",response->major_version,response->minor_version,response->status.code,response->status.reason);
 
 
-	int send_response(http_request_t *request,http_response_t *response, int newfd)
+
+	for(i=0;i<=3;i++)
 	{
-		FILE *newfp, *file;
-		printf("newfd in send_response =%d\n",newfd);
-		if (newfd == 0)
-			perror("newfd is 0");
-		newfp = fdopen(dup(newfd), "w");
-		//newfp = fopen("log.txt", "a+");
-		if(newfp== NULL)
-		{		
-			perror("creating file");
-			return 0;
-		//	exit(EXIT_SUCCESS);
-		}
-		int i =0;
-
-		if(response->status.code == 404 && (strstr(response->resource_path,"favicon.ico")==NULL))
-		{
-			request->method=HTTP_STATUS_OK;
-			response->status.code=HTTP_STATUS_LOOKUP[request->method].code;
-			response->status.reason=HTTP_STATUS_LOOKUP[request->method].reason;
-			strcpy(response->headers[2].field_value,"text/html");
-			filesize(response);
-
-		}
-		fprintf(newfp,"HTTP/%d.%d %d %s\r\n",response->major_version,response->minor_version,response->status.code,response->status.reason);
-
-
-
-		for(i=0;i<=3;i++)
-		{
-			fprintf(newfp,"%s%s\r\n",response->headers[i].field_name,response->headers[i].field_value);
-		}
-		fprintf(newfp,"\n");
-
-		filecontent(newfp,response,newfd);
-		fclose(newfp);
-		return 0;
+		fprintf(newfp,"%s%s\r\n",response->headers[i].field_name,response->headers[i].field_value);
 	}
+	fprintf(newfp,"\n");
+
+	filecontent(newfp,response,newfd);
+	fclose(newfp);
+	clock_gettime(CLOCK_MONOTONIC, &tend);
+	servicingtime = ((double)tend.tv_sec + 1.0e-9*tend.tv_nsec) - ((double)tstart.tv_sec + 1.0e-9*tstart.tv_nsec);
+
+	return 0;
+}
 
 
-	/* Getting file's contents */
+/* Getting file's contents */
 
-	int filecontent(FILE *newfp,http_response_t *response,int newfd)
+int filecontent(FILE *newfp,http_response_t *response,int newfd)
+{
+
+	FILE *file; int fd;
+	int f_size;
+	char *buf = malloc(sizeof(char) * MAX_FILE_SIZE);
+	memset(buf,0, sizeof(buf));
+	if(access(response->resource_path,F_OK)==0)
 	{
-
-		FILE *file; int fd;
-		int f_size;
-		char *buf = malloc(sizeof(char) * MAX_FILE_SIZE);
-		memset(buf,0, sizeof(buf));
-		printf("size of buffer =%lu\n",sizeof(buf));
-		if(access(response->resource_path,F_OK)==0)
+		file = fopen(response->resource_path, "r");
+		if (file)
 		{
-			file = fopen(response->resource_path, "r");
-			if (file)
-			{
-				while((f_size= fread(buf,1,sizeof(buf),file)) > 0)
-					fwrite(buf,1,f_size,newfp);
+			while((f_size= fread(buf,1,sizeof(buf),file)) > 0)
+				fwrite(buf,1,f_size,newfp);
 
-				close(fd);	
-			}
-			else
-			{
-				perror("Printing");
-			}
-			fclose(file);
+			close(fd);	
 		}
 		else
 		{
-			perror("favicon.ico");
+			perror("Printing");
 		}
-		free(buf);
-
-		return 0;
+		fclose(file);
 	}
-
-	/* Resetting the Headers*/
-
-	int reset_response(http_response_t *response)
+	else
 	{
-		int heads, header_count =3;
-		for(heads=0;heads<response->header_count;heads++)
-		{
-			strcpy(response->headers[heads].field_name,"");
-			strcpy(response->headers[heads].field_value,"");
-		}
-		response->header_count = 0;
-		count.forkcount = 0;
-		count.threadcount = 0;
-		count.totalcount = 0;
-		memset(response->resource_path,0, sizeof(response->resource_path));
-		if(count.dir == 1)
-			strcpy(response->resource_path,count.dir_string);
-
-		return 0;
+		perror("favicon.ico");
 	}
+	free(buf);
+
+	return 0;
+}
+
+/* Resetting the Headers*/
+
+int reset_response(http_response_t *response)
+{
+	int heads, header_count =3;
+	for(heads=0;heads<response->header_count;heads++)
+	{
+		strcpy(response->headers[heads].field_name,"");
+		strcpy(response->headers[heads].field_value,"");
+	}
+	response->header_count = 0;
+	count.forkcount = 0;
+	count.threadcount = 0;
+	count.totalcount = 0;
+	count.workercount =0;
+	count.queuecount =0;
+
+	memset(response->resource_path,0, sizeof(response->resource_path));
+	if(count.dir == 1)
+		strcpy(response->resource_path,count.dir_string);
+
+	return 0;
+}
