@@ -4,10 +4,9 @@
 CircularBuffer cb;
 ElemType elem ={0};
 
-
 int main(int argc, char *argv[])
 {
-
+	clock_gettime(CLOCK_MONOTONIC, &progtime);
 	/*constructing structure objects*/
 	http_response_t *response=(http_response_t *)malloc(sizeof(http_response_t) );
 	http_request_t *request=(http_request_t *)malloc(sizeof(http_request_t) );
@@ -17,7 +16,6 @@ int main(int argc, char *argv[])
 	char *worker_string;char* queue_string;char default_dir[ULTRA_SMALL] = ".";
 	char *error_string;
 	strcpy(response->resource_path,default_dir);
-	strcpy(log_level,"WARNING");
 	while ((c = getopt (argc, argv, "ftp:d:w:q:v:")) != -1) //iterate till all arguments are covered
 		switch (c) 
 		{   
@@ -76,16 +74,25 @@ int error_level(char *error_string)
 {
 
 	if((strcmp(error_string,"0")==0) || (strcmp(error_string,"ERROR")==0))
-		strcpy(log_level,"ERROR");
-	else if((strcmp(error_string,"1")==0) || (strcmp(error_string,"INFO")==0))
-		strcpy(log_level,"WARNING");
+	{
+		logcounter =0;
+	}
+	else if((strcmp(error_string,"1")==0) || (strcmp(error_string,"WARNING")==0))
+	{
+		logcounter = 1;
+	}
 	else if((strcmp(error_string,"2")==0) || (strcmp(error_string,"INFO")==0))
-		strcpy(log_level,"INFO");
+	{
+		logcounter = 2;
+	}
 	else if((strcmp(error_string,"3")==0) || (strcmp(error_string,"DEBUG")==0))
-		strcpy(log_level,"DEBUG");
+	{
+		logcounter = 3;
+	}
 	else
 	{
-		perror("Error_level : Invalid option");
+		strcpy(log_message,"Error_level : Invalid Option");
+		SigUsr2Logger(0,log_message);
 		exit(EXIT_FAILURE);
 	}
 	return 0;
@@ -97,7 +104,8 @@ int port_validation(int portno)
 		return 0;
 	else
 	{
-		perror("Invalid Port number");
+		strcpy(log_message,"Invalid Port Number");
+		SigUsr2Logger(0,log_message);
 		exit(EXIT_FAILURE);
 	}
 }
@@ -116,7 +124,8 @@ int directory_validation(http_response_t *response)
 	}
 	else
 	{
-		perror("Directory does not Exists");
+		strcpy(log_message,"Directory does not Exist");
+		SigUsr2Logger(0,log_message);
 		exit(EXIT_FAILURE);
 	}
 	int closedir(DIR *dirp); //Closing Directory
@@ -128,6 +137,9 @@ int directory_validation(http_response_t *response)
 /*Generating socket connections*/
 int socket_generator(http_request_t *request,http_response_t *response,int portno)
 {
+	strcpy(log_message,"Entered Socket generator function");
+	SigUsr2Logger(3,log_message);
+
 	struct sockaddr_in sockaddr;
 	int sockfd =0;
 	FILE *fwrite;
@@ -158,12 +170,17 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 	// end_signal_handling
 	if(bind(sockfd, ( struct sockaddr*) &sockaddr,sizeof(sockaddr)) == -1)
 	{
-		perror("bind");
+		strcpy(log_message,"Binding address");
+		SigUsr2Logger(0,log_message);
 		return 0;
 	}
 
 	if(listen(sockfd,50) == -1)
-		perror("listen");
+	{
+		strcpy(log_message,"Listening");
+		SigUsr2Logger(0,log_message);
+		return 0;
+	}
 	switch(count.totalcount)
 	{
 		case 0:
@@ -173,7 +190,8 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 					thread_pool(sockfd);
 				else
 				{
-					perror("No worker specified");
+					strcpy(log_message,"No worker Specified");
+					SigUsr2Logger(0,log_message);
 					exit(EXIT_FAILURE);
 				}
 			}
@@ -188,7 +206,8 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 		case 1:
 			if(count.workercount == 1 || count.queuecount ==1)
 			{
-				perror("not allowed :: -w -f / -w -t / -q -f / -q -t ");
+				strcpy(log_message,"Invalid Option: -w -f/-w -t/-q -f/ -q -t");
+				SigUsr2Logger(0,log_message);
 				exit(EXIT_FAILURE);
 			}
 			if(count.forkcount == 1)
@@ -197,10 +216,15 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 			{
 				main_thread(sockfd);				//	pthread_exit((void *)NULL);
 			}
-			else perror("Unknown");
+			else
+			{
+				strcpy(log_message,"Unknown");
+				SigUsr2Logger(0,log_message);
+			}
 			break;
 		case 2:
-			perror("Not allowed Fork + Thread");
+			strcpy(log_message,"Fork + Thread");
+			SigUsr2Logger(0,log_message);
 			exit(EXIT_FAILURE);
 		default:
 			exit(EXIT_FAILURE);
@@ -211,21 +235,47 @@ int socket_generator(http_request_t *request,http_response_t *response,int portn
 int thread_pool(int sockfd)
 {
 	strcpy(response_strategy,"Thread Pool");
-	int newsockfd,load,s;
+	int newsockfd,load,s,si;
 	pthread_t tidgroup[no_of_workers];
 	cbInit(&cb,job_size);
+	sigset_t set;
+	sigemptyset(&set);
+	sigaddset(&set, SIGINT);
+	sigaddset(&set, SIGTERM);
+	sigaddset(&set, SIGUSR1);
+	sigaddset(&set, SIGUSR2);
+
 	for(load=0;load<no_of_workers;load++)
 	{
+		si = pthread_sigmask(SIG_BLOCK, &set, NULL);
+		if(si!=0)
+		{
+			strcpy(log_message,"Invalid thread blocking");
+			SigUsr2Logger(0,log_message);
+		}
+
 		s=pthread_create(&tidgroup[load],0,thread_consumer,NULL);
+		if(s!=0)
+		{
+			strcpy(log_message,"Invalid thread creation");
+			SigUsr2Logger(0,log_message);
+		}
+		si = pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+		if(si!=0)
+		{
+			strcpy(log_message,"Invalid thread blocking");
+			SigUsr2Logger(0,log_message);
+		}
+
 	}
 	while(status == RUNNING)
 	{
 		newsockfd=accept(sockfd,(struct sockaddr *)NULL,NULL);
 		clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-		printf("newsockfd = %d\n",newsockfd);
 		if(newsockfd != -1)
 			thread_producer(&newsockfd);
+		//sleep(1);
 	}
 	for(load=0;load<no_of_workers;load++)
 		pthread_detach(tidgroup[load]);
@@ -251,6 +301,7 @@ void *thread_consumer()
 		pthread_cond_broadcast(&condp);
 		pthread_mutex_unlock(&the_mutex);
 
+
 		//DO THe job
 		char sendbuff[PATH_MAX];FILE * fp=NULL;
 		memset(&sendbuff,0,sizeof(sendbuff));
@@ -274,7 +325,8 @@ void *thread_consumer()
 			}
 			else
 			{
-				perror("fp -threads");
+				strcpy(log_message,"creating File *fp in thread pool");
+				SigUsr2Logger(0,log_message);
 			}
 			fclose(fp);
 
@@ -384,7 +436,9 @@ int process_fork(http_request_t *request,http_response_t *response,int sockfd)
 			}
 			else
 			{
-				perror("fp");
+				strcpy(log_message,"creating File *fp in fork");
+				SigUsr2Logger(0,log_message);
+
 			}
 			fclose(fp);	
 		}
@@ -421,7 +475,9 @@ int process_serial(http_request_t *request,http_response_t *response,int sockfd)
 			}
 			else
 			{
-				perror("fp");
+				strcpy(log_message,"creating File *fp in serial");
+				SigUsr2Logger(0,log_message);
+
 			}
 			fclose(fp);	
 		}
@@ -436,10 +492,14 @@ int process_serial(http_request_t *request,http_response_t *response,int sockfd)
 int main_thread(int sockfd)
 {
 	strcpy(response_strategy,"Process Thread");
-	int *ptr_str;
+	int *ptr_str;int si;
 	pthread_t thread1,thread2;
-
-
+	sigset_t set;
+	sigemptyset(&set);
+	sigaddset(&set, SIGINT);
+	sigaddset(&set, SIGTERM);
+	sigaddset(&set, SIGUSR1);
+	sigaddset(&set, SIGUSR2);
 	while(status == RUNNING)
 	{
 		ptr_str = malloc(sizeof(int));
@@ -455,9 +515,21 @@ int main_thread(int sockfd)
 
 		if (fd != -1)
 		{	
+			si = pthread_sigmask(SIG_BLOCK, &set, NULL);
+			if(si!=0)
+			{
+				strcpy(log_message,"Invalid thread blocking");
+				SigUsr2Logger(0,log_message);
+			}
 			pthread_create(&thread1,0,process_thread,ptr_str);
-			pthread_join(thread1,NULL);
-
+			//		pthread_join(thread1,NULL);
+			//sleep(1);
+			si = pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+			if(si!=0)
+			{
+				strcpy(log_message,"Invalid thread blocking");
+				SigUsr2Logger(0,log_message);
+			}
 			pthread_detach(thread1);
 		}
 
@@ -494,7 +566,9 @@ void *process_thread(void *ptr_str)
 		}
 		else
 		{
-			perror("fp -threads");
+			strcpy(log_message,"creating File *fp in Threads");
+			SigUsr2Logger(0,log_message);
+
 		}
 		fclose(fp);
 
@@ -507,6 +581,9 @@ void *process_thread(void *ptr_str)
 /*getting more headers */ 
 int nextrequest(http_request_t *request, FILE *fp )
 {
+	strcpy(log_message,"Entered Next Request function");
+	SigUsr2Logger(3,log_message);
+
 	char *extraheaders = malloc(sizeof(char)*BUFFER_SIZE);
 	char head_name[MID_SIZE], head_value[MID_SIZE];
 	int i =0,counter = 0 ;char *token;char temp[BUFFER_SIZE];
@@ -537,6 +614,9 @@ int nextrequest(http_request_t *request, FILE *fp )
 /*tokenizing the strings*/
 int parse_string(char *loc,http_request_t *request,http_response_t *response,int newfd)
 {
+	strcpy(log_message,"Entered Parse String function");
+	SigUsr2Logger(3,log_message);
+
 	struct stat st;
 	char *token = malloc(sizeof(char)*SMALL_SIZE);
 	char s[3] = " ";char *lasts; char *uri;
@@ -566,6 +646,9 @@ int parse_string(char *loc,http_request_t *request,http_response_t *response,int
 /* checking for GET */
 int checkget(char *method,http_request_t *request,http_response_t *response,int newfd)
 { 
+	strcpy(log_message,"Entering checkget function");
+	SigUsr2Logger(3,log_message);
+
 	char *temp = "GET";
 	strcat(response->resource_path,request->uri);
 
@@ -593,6 +676,9 @@ int checkget(char *method,http_request_t *request,http_response_t *response,int 
 /* Buffer Function to arrange function parameters*/
 int passarray(http_response_t *response,http_request_t *request,int newfd)
 {
+	strcpy(log_message,"Entered buffer function");
+	SigUsr2Logger(3,log_message);
+
 	time_date(response);
 	filetype(request,response);
 	filesize(response);
@@ -606,6 +692,9 @@ int passarray(http_response_t *response,http_request_t *request,int newfd)
 /* Displaying time and date */
 int time_date(http_response_t *response)
 {
+	strcpy(log_message,"Entered time/date function");
+	SigUsr2Logger(3,log_message);
+
 	char *s = malloc(sizeof (char)*SMALL_SIZE);
 	char date[7] = "Date: ";
 	size_t i;
@@ -622,6 +711,9 @@ int time_date(http_response_t *response)
 /* Finding File Type*/
 int filetype(http_request_t *request,http_response_t *response)
 {
+	strcpy(log_message,"Checking for mime-types");
+	SigUsr2Logger(3,log_message);
+
 	size_t len= strlen(request->uri); char *pch = NULL;
 	char content[16] = "Content-Type: ";
 	strcpy(response->headers[2].field_name,content);
@@ -711,6 +803,9 @@ int filetype(http_request_t *request,http_response_t *response)
 /*Getting File Size*/
 int filesize(http_response_t *response)
 {
+	strcpy(log_message,"Checking for file size");
+	SigUsr2Logger(3,log_message);
+
 	char t[18] = "Content Length: ";
 	strcpy(response->headers[3].field_name,t);
 
@@ -741,6 +836,10 @@ int filesize(http_response_t *response)
 
 int handle_errors(http_response_t *response)
 {
+	strcpy(log_message,"Unbinding takes time.Wait before using the same port number.");
+	SigUsr2Logger(3,log_message);
+
+
 	int size;
 	struct stat st;
 	FILE *fp;
@@ -794,8 +893,8 @@ int handle_errors(http_response_t *response)
 				}
 				else
 				{
-					perror("Error handling");
-
+					strcpy(log_message,"creating File *fp Error handling");
+					SigUsr2Logger(0,log_message);
 				}
 			}
 		}		
@@ -807,14 +906,14 @@ int handle_errors(http_response_t *response)
 
 
 
-
-
-
-
-
-
 int build_response(const http_request_t *request, http_response_t *response)
 {
+	strcpy(log_message,"Unbinding of Port takes ~53 seconds.");
+	SigUsr2Logger(1,log_message);
+
+	strcpy(log_message," ");
+	SigUsr2Logger(2,log_message);
+
 	total_request++;
 	char tempname[] = "Server: ", tempvalue[]= "CSUC HTTP";
 	response->status.code=HTTP_STATUS_LOOKUP[request->method].code;
@@ -831,13 +930,11 @@ int build_response(const http_request_t *request, http_response_t *response)
 int send_response(http_request_t *request,http_response_t *response, int newfd)
 {
 	FILE *newfp, *file;
-	//		if (newfd == 0)
-	//			perror("newfd is 0");
 	newfp = fdopen(dup(newfd), "w");
-	//newfp = fopen("log.txt", "a+");
 	if(newfp== NULL)
-	{		
-		perror("creating file");
+	{
+		strcpy(log_message,"creating File *fp in send response");
+		SigUsr2Logger(0,log_message);
 		exit(EXIT_SUCCESS);
 	}
 	int i =0;
@@ -874,30 +971,34 @@ int send_response(http_request_t *request,http_response_t *response, int newfd)
 
 int filecontent(FILE *newfp,http_response_t *response,int newfd)
 {
+	strcpy(log_message,"Checking for file contents");
+	SigUsr2Logger(3,log_message);
 
 	FILE *file; int fd;
 	int f_size;
-	char *buf = malloc(sizeof(char) * MAX_FILE_SIZE);
-	memset(buf,0, sizeof(buf));
+	char *buf = malloc((sizeof(char *))*(MAX_FILE_SIZE));
+	memset(buf,0, MAX_FILE_SIZE);
 	if(access(response->resource_path,F_OK)==0)
 	{
 		file = fopen(response->resource_path, "r");
 		if (file)
 		{
-			while((f_size= fread(buf,1,sizeof(buf),file)) > 0)
+			while((f_size= fread(buf,1,MAX_FILE_SIZE,file)) > 0)
 				fwrite(buf,1,f_size,newfp);
 
-			close(fd);	
+			//		close(fd);	
 		}
 		else
 		{
-			perror("Printing");
+			strcpy(log_message,"Opening file in file contents");
+			SigUsr2Logger(0,log_message);
 		}
 		fclose(file);
 	}
 	else
 	{
-		perror("favicon.ico");
+		strcpy(log_message,"Warning :favicon.ico detected.");
+		SigUsr2Logger(1,log_message);
 	}
 	free(buf);
 
@@ -908,6 +1009,9 @@ int filecontent(FILE *newfp,http_response_t *response,int newfd)
 
 int reset_response(http_response_t *response)
 {
+	strcpy(log_message,"resetting headers and buffers");
+	SigUsr2Logger(3,log_message);
+
 	int heads, header_count =3;
 	for(heads=0;heads<response->header_count;heads++)
 	{

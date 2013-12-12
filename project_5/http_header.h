@@ -21,7 +21,7 @@
 #include <stdarg.h>
 #include <sys/time.h>
 
-#define MAX_FILE_SIZE 819200
+#define MAX_FILE_SIZE 8192000
 #define BUFFER_SIZE   1024
 #define MID_SIZE      500
 #define SMALL_SIZE    100
@@ -45,9 +45,12 @@ char root_directory[PATH_MAX] = ".";
 int no_of_workers=0;
 int job_size = 16;
 char response_strategy[PATH_MAX];
-char log_level[PATH_MAX];
+char log_message[PATH_MAX];
 int total_request=0;
 int total_buffer_size=0;
+int logcounter=1;
+void SigUsr2Logger(int defined_level, char *log_message);
+
 enum {
     RUNNING,
     SHUTDOWN
@@ -57,7 +60,6 @@ volatile sig_atomic_t status = RUNNING;
 
 void graceful_shutdown(int sig)
 {
-    printf("%s is triggered\n", strsignal(sig));
     switch(sig)
     {
 	case SIGINT :
@@ -70,6 +72,7 @@ void graceful_shutdown(int sig)
 	    SigUsr1Info();
 	    break;
 	case SIGUSR2 :
+	    logcounter=((logcounter+1)%4);
 	    break;
 	default :
 	    break;
@@ -78,7 +81,7 @@ void graceful_shutdown(int sig)
 }
 
 //Time functions
-struct timespec tstart={0,0}, tend={0,0};
+struct timespec tstart={0,0}, tend={0,0}, progtime={0,0};
 double servicingtime =0;
 /* Opaque buffer element type.  This would be defined by the application. */
 typedef struct { int value; } ElemType;
