@@ -1,8 +1,7 @@
 #include "http_header.h"
+#include "circular_buffer.h"
 
-
-CircularBuffer cb;
-ElemType elem ={0};
+#define MAX_HEADERS_COUNT 3
 
 int main(int argc, char *argv[])
 {
@@ -69,70 +68,6 @@ int main(int argc, char *argv[])
 	free(response); 
 	return 0;
 }
-
-int error_level(char *error_string)
-{
-
-	if((strcmp(error_string,"0")==0) || (strcmp(error_string,"ERROR")==0))
-	{
-		logcounter =0;
-	}
-	else if((strcmp(error_string,"1")==0) || (strcmp(error_string,"WARNING")==0))
-	{
-		logcounter = 1;
-	}
-	else if((strcmp(error_string,"2")==0) || (strcmp(error_string,"INFO")==0))
-	{
-		logcounter = 2;
-	}
-	else if((strcmp(error_string,"3")==0) || (strcmp(error_string,"DEBUG")==0))
-	{
-		logcounter = 3;
-	}
-	else
-	{
-		strcpy(log_message,"Error_level : Invalid Option");
-		SigUsr2Logger(0,log_message);
-		exit(EXIT_FAILURE);
-	}
-	return 0;
-}
-
-int port_validation(int portno)
-{
-	if(portno > 1024 && portno <65535)
-		return 0;
-	else
-	{
-		strcpy(log_message,"Invalid Port Number");
-		SigUsr2Logger(0,log_message);
-		exit(EXIT_FAILURE);
-	}
-}
-
-
-int directory_validation(http_response_t *response)
-
-{
-	struct dirent *dirpent;
-	DIR *dirp;
-	dirp= opendir(count.dir_string);
-	if(dirp)
-	{
-		strcpy(response->resource_path,count.dir_string);
-		return 1;
-	}
-	else
-	{
-		strcpy(log_message,"Directory does not Exist");
-		SigUsr2Logger(0,log_message);
-		exit(EXIT_FAILURE);
-	}
-	int closedir(DIR *dirp); //Closing Directory
-
-
-}
-
 
 /*Generating socket connections*/
 int socket_generator(http_request_t *request,http_response_t *response,int portno)
@@ -351,49 +286,6 @@ void thread_producer(int *newfdptr)
 
 }
 
-
-void cbInit(CircularBuffer *cb, int size)
-{
-	cb->size  = size + 1; /* include empty elem */
-	cb->start = 0;
-	cb->end   = 0;
-	cb->elems = (ElemType *)calloc(cb->size, sizeof(ElemType));
-}
-
-void cbFree(CircularBuffer *cb)
-{
-	free(cb->elems); /* OK if null */
-}
-
-int cbIsFull(CircularBuffer *cb)
-{
-	return (cb->end + 1) % cb->size == cb->start;
-}
-
-int cbIsEmpty(CircularBuffer *cb)
-{
-	return cb->end == cb->start;
-}
-
-/* Write an element, overwriting oldest element if buffer is full. App can
-   choose to avoid the overwrite by checking cbIsFull(). */
-void cbWrite(CircularBuffer *cb, ElemType *elem)
-{
-	cb->elems[cb->end] = *elem;
-	cb->end = (cb->end + 1) % cb->size;
-	if (cb->end == cb->start)
-		cb->start = (cb->start + 1) % cb->size; /* full, overwrite */
-}
-
-/* Read oldest element. App must ensure !cbIsEmpty() first. */
-void cbRead(CircularBuffer *cb, ElemType *elem)
-{
-	*elem = cb->elems[cb->start];
-	cb->start = (cb->start + 1) % cb->size;
-}
-
-
-
 int process_fork(http_request_t *request,http_response_t *response,int sockfd)
 {
 	strcpy(response_strategy," Process Fork");
@@ -578,7 +470,7 @@ void *process_thread(void *ptr_str)
 
 
 
-/*getting more headers */ 
+/*getting more headers  
 int nextrequest(http_request_t *request, FILE *fp )
 {
 	strcpy(log_message,"Entered Next Request function");
@@ -611,7 +503,7 @@ int nextrequest(http_request_t *request, FILE *fp )
 	return 0;
 }
 
-/*tokenizing the strings*/
+/*tokenizing the strings
 int parse_string(char *loc,http_request_t *request,http_response_t *response,int newfd)
 {
 	strcpy(log_message,"Entered Parse String function");
@@ -643,7 +535,7 @@ int parse_string(char *loc,http_request_t *request,http_response_t *response,int
 }
 
 
-/* checking for GET */
+/* checking for GET 
 int checkget(char *method,http_request_t *request,http_response_t *response,int newfd)
 { 
 	strcpy(log_message,"Entering checkget function");
@@ -669,7 +561,7 @@ int checkget(char *method,http_request_t *request,http_response_t *response,int 
 	passarray(response,request,newfd);
 	return 0;
 }
-
+*/
 
 
 
@@ -686,225 +578,6 @@ int passarray(http_response_t *response,http_request_t *request,int newfd)
 	send_response(request,response,newfd);
 	return 0;
 }
-
-
-
-/* Displaying time and date */
-int time_date(http_response_t *response)
-{
-	strcpy(log_message,"Entered time/date function");
-	SigUsr2Logger(3,log_message);
-
-	char *s = malloc(sizeof (char)*SMALL_SIZE);
-	char date[7] = "Date: ";
-	size_t i;
-	struct tm tim;
-	time_t now;
-	now = time(NULL);
-	tim = *(gmtime(&now));
-	strcpy(response->headers[0].field_name,date);
-	i = strftime(s,30,"%a, %d %b %Y %H:%M:%S %Z",&tim);
-	strcpy(response->headers[0].field_value,s);
-	return 0;
-}
-
-/* Finding File Type*/
-int filetype(http_request_t *request,http_response_t *response)
-{
-	strcpy(log_message,"Checking for mime-types");
-	SigUsr2Logger(3,log_message);
-
-	size_t len= strlen(request->uri); char *pch = NULL;
-	char content[16] = "Content-Type: ";
-	strcpy(response->headers[2].field_name,content);
-	pch = strrchr(request->uri,'.');
-	if (strncmp(pch,".html",5) == 0)
-	{
-		strcpy(response->headers[2].field_value,"text/html");
-
-	}
-	else if(strncmp(pch,".jpeg",5) == 0 || strncmp(pch,".jpg",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"image/jpeg");
-
-	}
-	else if(strncmp(pch,".png",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"image/png");
-	}
-	else if(strncmp(pch,".css",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"text/css");
-	}
-	else if(strncmp(pch,".js",3) == 0)
-	{
-		strcpy(response->headers[2].field_value,"application/javascript");
-	}
-	else if(strncmp(pch,".xml",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"application/xml");
-	}
-	else if(strncmp(pch,".mp4",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"video/mp4");
-	}
-	else if(strncmp(pch,".mp3",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"audio/mpeg");
-	}
-	else if(strncmp(pch,".mpg",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"video/mpeg");
-	}
-	else if(strncmp(pch,".mpeg",5) == 0)
-	{
-		strcpy(response->headers[2].field_value,"video/mpeg");
-	}
-	else if(strncmp(pch,".mov",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"video/quicktime");
-	}
-	else if(strncmp(pch,".json",5) == 0)
-	{
-		strcpy(response->headers[2].field_value,"application/json");
-	}
-	else if(strncmp(pch,".xpi",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"application/x-xpinstall");
-	}
-	else if(strncmp(pch,".webm",5) == 0)
-	{
-		strcpy(response->headers[2].field_value,"video/webm");
-	}
-	else if(strncmp(pch,".flv",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"video/x-flv");
-	}
-	else if(strncmp(pch,".pdf",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"application/pdf");
-	}
-	else if(strncmp(pch,".rss",4) == 0)
-	{
-		strcpy(response->headers[2].field_value,"application/rss+xml");
-	}
-	else if(strncmp(pch,".jquery",5) == 0)
-	{
-		strcpy(response->headers[2].field_value,"application/x-jquery-tmpl");
-	}
-	else
-	{
-		strcpy(response->headers[2].field_value,"text/plain");
-	}
-	return 0;
-}
-
-
-/*Getting File Size*/
-int filesize(http_response_t *response)
-{
-	strcpy(log_message,"Checking for file size");
-	SigUsr2Logger(3,log_message);
-
-	char t[18] = "Content Length: ";
-	strcpy(response->headers[3].field_name,t);
-
-
-	if(access(response->resource_path,F_OK)==0)
-	{
-		int size;
-		struct stat st;
-		stat(response->resource_path, &st);
-		size = st.st_size;	
-		sprintf(response->headers[3].field_value,"%d", size);
-		total_buffer_size=total_buffer_size+size;
-	}
-	else
-	{
-		if(strstr(response->resource_path,"favicon.ico")==NULL)
-			handle_errors(response);
-		else
-		{
-			char siz[] = "0";
-			strcpy(response->headers[3].field_value,siz);
-
-		}
-
-	}
-}
-
-
-int handle_errors(http_response_t *response)
-{
-	strcpy(log_message,"Unbinding takes time.Wait before using the same port number.");
-	SigUsr2Logger(3,log_message);
-
-
-	int size;
-	struct stat st;
-	FILE *fp;
-
-	memset(response->resource_path,0, sizeof(response->resource_path));
-	strcpy(response->resource_path, root_directory);	
-	strcat(response->resource_path,"/404.html");
-	if(fp=fopen(response->resource_path,"r"))
-	{
-		if(fp)
-		{
-			stat(response->resource_path, &st);
-			size = st.st_size;	
-			sprintf(response->headers[3].field_value,"%d", size);
-
-
-		}
-
-		fclose(fp);	
-	}
-	else 
-	{
-		memset(response->resource_path,0, sizeof(response->resource_path));
-		strcpy(response->resource_path, root_directory);	
-		strcat(response->resource_path,"/400.html");
-		if(fp=fopen(response->resource_path,"r"))
-		{
-			if(fp)
-			{
-				stat(response->resource_path, &st);
-				size = st.st_size;	
-				sprintf(response->headers[3].field_value,"%d", size);
-
-			}
-
-			fclose(fp);	
-		}
-		else
-		{
-			memset(response->resource_path,0, sizeof(response->resource_path));
-			strcpy(response->resource_path, "errors");	
-			strcat(response->resource_path,"/errors.html");
-			fp = fopen (response->resource_path,"r");
-			{
-				if(fp)
-				{
-					stat(response->resource_path, &st);
-					size = st.st_size;	
-					sprintf(response->headers[3].field_value,"%d", size);
-					fclose(fp);
-				}
-				else
-				{
-					strcpy(log_message,"creating File *fp Error handling");
-					SigUsr2Logger(0,log_message);
-				}
-			}
-		}		
-	}
-	return 0;
-
-
-}
-
-
 
 int build_response(const http_request_t *request, http_response_t *response)
 {
@@ -952,7 +625,7 @@ int send_response(http_request_t *request,http_response_t *response, int newfd)
 
 
 
-	for(i=0;i<=3;i++)
+	for(i=0;i<=MAX_HEADERS_COUNT;i++)
 	{
 		fprintf(newfp,"%s%s\r\n",response->headers[i].field_name,response->headers[i].field_value);
 	}
@@ -966,44 +639,6 @@ int send_response(http_request_t *request,http_response_t *response, int newfd)
 	return 0;
 }
 
-
-/* Getting file's contents */
-
-int filecontent(FILE *newfp,http_response_t *response,int newfd)
-{
-	strcpy(log_message,"Checking for file contents");
-	SigUsr2Logger(3,log_message);
-
-	FILE *file; int fd;
-	int f_size;
-	char *buf = malloc((sizeof(char *))*(MAX_FILE_SIZE));
-	memset(buf,0, MAX_FILE_SIZE);
-	if(access(response->resource_path,F_OK)==0)
-	{
-		file = fopen(response->resource_path, "r");
-		if (file)
-		{
-			while((f_size= fread(buf,1,MAX_FILE_SIZE,file)) > 0)
-				fwrite(buf,1,f_size,newfp);
-
-			//		close(fd);	
-		}
-		else
-		{
-			strcpy(log_message,"Opening file in file contents");
-			SigUsr2Logger(0,log_message);
-		}
-		fclose(file);
-	}
-	else
-	{
-		strcpy(log_message,"Warning :favicon.ico detected.");
-		SigUsr2Logger(1,log_message);
-	}
-	free(buf);
-
-	return 0;
-}
 
 /* Resetting the Headers*/
 

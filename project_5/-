@@ -1,8 +1,10 @@
+#ifndef SIGNAL_HANDLERS_H
+#define SIGNAL_HANDLERS_H
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <limits.h>
 #include <time.h>
-#include <signal.h>
 
 extern int portno;
 extern int no_of_workers;
@@ -21,19 +23,12 @@ struct timespec progtimeend={0,0};
 extern int logcounter;
 void LogWritter(FILE *stream, char *format, ...);
 extern void SigUsr2Logger(int defined_level, char* message);
-extern void SigUsr1Info();
-extern volatile sig_atomic_t status; 
-extern void graceful_shutdown(int sig);
+
 
 typedef struct{
 	int logcounter;
 	char *log_level;
 }log_level_t;
-
-enum {
-    RUNNING,
-    SHUTDOWN
-};
 
 const log_level_t LOG_LEVEL_LOOKUP[] = {
 	{0,"ERROR"},
@@ -44,3 +39,4 @@ const log_level_t LOG_LEVEL_LOOKUP[] = {
 
 log_level_t loggerlevel;
 
+#endif

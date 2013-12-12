@@ -11,6 +11,8 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include "csuc_http.h"
+#include "csuc_http_lookup.h"
+#include "circular_buffer.h"
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -20,25 +22,14 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include <sys/time.h>
+#include "counters.h"
 
 #define MAX_FILE_SIZE 8192000
 #define BUFFER_SIZE   1024
 #define MID_SIZE      500
 #define SMALL_SIZE    100
 #define ULTRA_SMALL   10
-//global struct
-typedef struct counted
-{
-	short forkcount;
-	short threadcount;
-	short totalcount;
-	int   dir;
-	char *dir_string;
-	short workercount;
-	short queuecount;
-}count_t;
 
-count_t count;
 //global variables
 int portno =9000;
 char root_directory[PATH_MAX] = ".";
@@ -50,6 +41,7 @@ int total_request=0;
 int total_buffer_size=0;
 int logcounter=1;
 void SigUsr2Logger(int defined_level, char *log_message);
+void SigUsr1Info();
 
 enum {
     RUNNING,
@@ -57,43 +49,12 @@ enum {
 };
 
 volatile sig_atomic_t status = RUNNING;
-
-void graceful_shutdown(int sig)
-{
-    switch(sig)
-    {
-	case SIGINT :
-	    status = SHUTDOWN;
-	    break;
-	case SIGTERM :
-	    status = SHUTDOWN;
-	    break;
-	case SIGUSR1 :
-	    SigUsr1Info();
-	    break;
-	case SIGUSR2 :
-	    logcounter=((logcounter+1)%4);
-	    break;
-	default :
-	    break;
-    }
-
-}
+//typedef struct { int value; } extern ElemType;
+//extern ElemType elem = {0};
 
 //Time functions
 struct timespec tstart={0,0}, tend={0,0}, progtime={0,0};
 double servicingtime =0;
-/* Opaque buffer element type.  This would be defined by the application. */
-typedef struct { int value; } ElemType;
-
-/* Circular buffer object */
-typedef struct {
-	int         size;   /* maximum number of elements           */
-	int         start;  /* index of oldest element              */
-	int         end;    /* index at which to write new element  */
-	ElemType   *elems;  /* vector of elements                   */
-} CircularBuffer;
-
 
 static pthread_mutex_t the_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condc = PTHREAD_COND_INITIALIZER;
@@ -118,12 +79,5 @@ int reset_response(http_response_t *response);
 int thread_pool(int sockfd);
 void *thread_consumer();
 void thread_producer();
-void cbInit(CircularBuffer *cb, int size);
-void cbFree(CircularBuffer *cb);
-int cbIsFull(CircularBuffer *cb);
-int cbIsEmpty(CircularBuffer *cb);
-void cbWrite(CircularBuffer *cb, ElemType *elem);
-void cbRead(CircularBuffer *cb, ElemType *elem);
-
-
+void graceful_shutdown(int sig);
 #endif //HTTP_HEADER

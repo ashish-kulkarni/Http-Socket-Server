@@ -1,5 +1,28 @@
 #include "signal_handlers.h"
 
+void graceful_shutdown(int sig)
+{
+    switch(sig)
+    {
+	case SIGINT :
+	    status = SHUTDOWN;
+	    break;
+	case SIGTERM :
+	    status = SHUTDOWN;
+	    break;
+	case SIGUSR1 :
+	    SigUsr1Info();
+	    break;
+	case SIGUSR2 :
+	    logcounter=((logcounter+1)%4);
+	    break;
+	default :
+	    break;
+    }
+
+}
+
+
 void LogWritter(FILE *stream, char *format, ...)
 {
 	va_list args;
