@@ -1,3 +1,6 @@
+#ifndef CSUC_HTTP_LOOKUP_H
+#define CSUC_HTTP_LOOKUP_H
+
 const http_status_t HTTP_STATUS_LOOKUP[] = {
     // Informational Status Codes
     // Request received, continuing process
@@ -55,4 +58,4 @@ const http_status_t HTTP_STATUS_LOOKUP[] = {
     {505, "HTTP Version not supported"}
 };
 
-
+#endif //LOOKUP

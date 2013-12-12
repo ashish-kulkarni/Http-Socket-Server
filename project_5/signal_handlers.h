@@ -1,3 +1,6 @@
+#ifndef SIGNALS_HANDLERS_H
+#define SIGNALS_HANDLERS_H
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <limits.h>
@@ -44,3 +47,4 @@ const log_level_t LOG_LEVEL_LOOKUP[] = {
 
 log_level_t loggerlevel;
 
+#endif //SIGNAL_LOOKUP

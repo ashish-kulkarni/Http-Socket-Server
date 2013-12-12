@@ -1,4 +1,5 @@
-
+#ifndef COUNTERS_H
+#define COUNTERS_H
 
 //global struct
 typedef struct counted
@@ -14,3 +15,4 @@ typedef struct counted
 
 count_t count;
 
+#endif //COUNTERS.H
